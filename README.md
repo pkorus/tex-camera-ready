@@ -87,6 +87,29 @@ Matched 40 entries
         └── Results-003.png
 ```
 
+## Handling Figures and their dependencies
+
+I extensively use the `standalone` package for figures. In order to ensure correct building of both the main document, and the figures (when built independently), I define new commands to handle path differences. In the figure *.tex while, this would be:
+
+```
+\newcommand*{\FigPath}{../figures/}
+...
+\includegraphics[width=2in]{\FigPath schematic/graphics.jpg}}
+```
+
+In the main document, this becomes:
+
+```
+\newcommand*{\FigPath}{./figures/}
+```
+
+The tool will refactor `\FigPath` and `\DataPath` commands.
+
+## BibTeX Entries
+
+The current implementation requires BibTeX entries to have the final closing bracket in a separate line. Attributes should also be defined in lower case. There might be more limitations. Entries copied from Google Scholar are typically handled correctly.
+
+
 ## Ideas for Later
 
 - Auto-compile TiKz figures and replace `includestandalone` with `includegraphics`

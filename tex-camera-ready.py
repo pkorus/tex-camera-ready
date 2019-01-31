@@ -17,69 +17,70 @@ def refactor_dependencies(old_file, new_file, root_dir):
     root_dir = os.path.join(root_dir, 'resources')
     print('   Refactoring file {} -> {}'.format(old_file, new_file))
 
-    of = open(new_file, 'w')
-    with open(old_file) as f:
-        lines = f.readlines()
+    with open(new_file, 'w') as of:
+        with open(old_file) as f:
+            lines = f.readlines()
 
-    for line in lines:
+        for line in lines:
 
-        if line.strip().startswith('%'): continue
+            if line.strip().startswith('%'): continue
 
-        # Check if this is a standalone class - requires different file handling
-        if re.search("documentclass(\[[^\]]*\]){0,1}\{standalone\}", line):
-            standalone_mode = True
+            # Check if this is a standalone class - requires different file handling
+            if re.search("documentclass(\[[^\]]*\]){0,1}\{standalone\}", line):
+                standalone_mode = True
 
-        # Check for simple new commands - used for referencing external resources
-        new_command = re.search("newcommand\*{0,1}\{([^\}]*)\}\{([^\}]*)\}", line)
+            # Check for simple new commands - used for referencing external resources
+            new_command = re.search("newcommand\*{0,1}\{([^\}]*)\}\{([^\}]*)\}", line)
 
-        # Build dictionary of new commands
-        if new_command:
-            key, value = new_command.groups()
-            if key in ['\\DataPath', '\\FigPath']:
-                new_commands[key] = value
-                line = '\\newcommand*{{{}}}{{{}}}\n'.format(key, '../resources/')
+            # Build dictionary of new commands
+            if new_command:
+                key, value = new_command.groups()
+                if key in ['\\DataPath', '\\FigPath']:
+                    new_commands[key] = value
+                    line = '\\newcommand*{{{}}}{{{}}}\n'.format(key, '../resources/')
 
-        # Handle inclusion of graphics / data files
+            # Handle inclusion of graphics / data files
 
-        # Check for known inclusion commands
-        for pattern in regexps:
-            match = re.search(pattern, line)
-            if match:
-                command, params, filename = match.groups()
-                if standalone_mode:
-                    for k, v in new_commands.items():
-                        filename = re.sub(re.escape(k) + '( |\{\})', v, filename)
+            # Check for known inclusion commands
+            for pattern in regexps:
+                match = re.search(pattern, line)
+                if match:
+                    command, params, filename = match.groups()
+                    if standalone_mode:
+                        for k, v in new_commands.items():
+                            filename = re.sub(re.escape(k) + '( |\{\})', v, filename)
 
-                # Make sure the file exists & rewrite the line
-                full_path = '{}/{}'.format(os.path.split(old_file)[0], filename) if old_file.find(
-                    '/') >= 0 else filename
+                    # Make sure the file exists & rewrite the line
+                    full_path = '{}/{}'.format(os.path.split(old_file)[0], filename) if old_file.find(
+                        '/') >= 0 else filename
 
-                if os.path.isfile(full_path):
-                    if filename not in included:
-                        print('   {:15}  {}'.format('               ', filename))
-                else:
-                    if filename not in included:
-                        print('   {:15}! {}'.format('               ', filename))
-                    missing_files.append(filename)
+                    if os.path.isfile(full_path):
+                        if filename not in included:
+                            print('   {:15}  {}'.format('               ', filename))
+                    else:
+                        if filename not in included:
+                            print('   {:15}! {}'.format('               ', filename))
+                        missing_files.append(filename)
 
-                if len(new_commands.keys()) > 0:
-                    new_filename = '{} {}/{}'.format(list(new_commands.keys())[0], os.path.split(new_file)[-1].split('.')[0], os.path.split(filename)[-1])
-                else:
-                    new_filename = '{}/{}/{}'.format('./resources', os.path.split(new_file)[-1].split('.')[0], os.path.split(filename)[-1])
+                    if len(new_commands.keys()) > 0:
+                        new_filename = '{} {}/{}'.format(list(new_commands.keys())[0], os.path.split(new_file)[-1].split('.')[0], os.path.split(filename)[-1])
+                    else:
+                        new_filename = '{}/{}/{}'.format('./resources', os.path.split(new_file)[-1].split('.')[0], os.path.split(filename)[-1])
 
-                tgt_filaname = '{}/{}/{}'.format(root_dir, os.path.split(new_file)[-1].split('.')[0], os.path.split(filename)[-1])
-                if not os.path.isdir(os.path.split(tgt_filaname)[0]):
-                    os.makedirs(os.path.split(tgt_filaname)[0])
-                if os.path.isfile(full_path):
-                    shutil.copyfile(full_path, tgt_filaname)
+                    tgt_filaname = '{}/{}/{}'.format(root_dir, os.path.split(new_file)[-1].split('.')[0], os.path.split(filename)[-1])
+                    if not os.path.isdir(os.path.split(tgt_filaname)[0]):
+                        os.makedirs(os.path.split(tgt_filaname)[0])
+                    if os.path.isfile(full_path):
+                        shutil.copyfile(full_path, tgt_filaname)
 
-                line = re.sub(pattern, '{}{}{{{}}}'.format(command, params, new_filename), line)
+                    # Update the command with a new filename in the current line
+                    # (re module parses backslashes, so make sure to prevent that)
+                    line = re.sub(pattern, '{}{}{{{}}}'.format(command, params, new_filename).replace('\\', '\\\\'), line)
 
-                included.append(filename)
+                    included.append(filename)
 
-        of.write(line)
+            of.write(line)
 
-    of.close()
     return missing_files
 
 
@@ -132,7 +133,7 @@ for dirname in [args.output, '{}/bib'.format(args.output), '{}/resources'.format
 of = open(os.path.join(args.output, os.path.split(args.filename)[-1]), 'w')
 
 subfig_count = 0
-current_subfig = -1
+current_subfig = 0
 alphabet = 'abcdefghijklmnopqrstuwvxyz'
 citations = []
 bibtex_files = []
@@ -140,7 +141,9 @@ bibtex_files = []
 # Process successive lines 
 for line in lines:
 
-    if line.strip().startswith('%'): continue
+    if line.strip().startswith('%'):
+        continue
+
     line_written = False
     env_command = re.search('(begin|end){([a-z]*)\*{0,1}\}', line)
 
@@ -150,6 +153,7 @@ for line in lines:
             current_environment.append(env_type)
             if current_environment[-1] in counters:
                 counters[current_environment[-1]] += 1
+                current_subfig = 0
         elif flag == 'end':
             current_environment.pop()
         else:
@@ -177,13 +181,17 @@ for line in lines:
                 print('Error {} not found in the filesystem'.format(filename))
                 sys.exit(5)
 
+        # The sub-extension handles multiple includes in a single figure (
+        subext = '' if current_subfig <= 0 else alphabet[current_subfig]
         extension = "" if len(filename.split('.')) == 1 else ".%s" % filename.split('.')[-1]
 
         filename_split = os.path.split(filename)
-        context = '{} {:02}'.format(current_environment[-1], counters[current_environment[-1]]) if current_environment[-1] in counters else 'document'
-        context_file = '{}_{:02}{}'.format(current_environment[-1], counters[current_environment[-1]], extension) if current_environment[-1] in counters else filename_split[-1]
+        context = '{} {:02}{}'.format(current_environment[-1], counters[current_environment[-1]], subext) if current_environment[-1] in counters else 'document'
+        context_file = '{}_{:02}{}{}'.format(current_environment[-1], counters[current_environment[-1]], subext, extension) if current_environment[-1] in counters else filename_split[-1]
 
         new_filename = 'includes/{}'.format(context_file)
+        current_subfig += 1
+
         print('\n + {:15}: {}'.format(context, filename))
         print('   {:15}> {}'.format('               ', new_filename))
 
@@ -201,7 +209,7 @@ for line in lines:
     if args.bib:
 
         # Find citations
-        for r in re.findall('\\\\cite\{([\w0-9:\-\_\,]+)\}', line):
+        for r in re.findall('\\\\cite\{([\w0-9:\-\_\,\.]+)\}', line):
             for i in r.split(','):
                 citations.append(i)
 
@@ -250,7 +258,7 @@ if args.bib:
         with open("%s/%s" % (input_root, bib_file)) as bf:
             content = bf.read()
             # TODO Could use a better regexp for pinpointing BibTeX entries - the current one needs the closing bracket in a separate line.
-            matches = re.findall('(@[\w]+\{(.(?!\n\}))+..\})', content, re.DOTALL)  # [^\}]*(?=\n\})
+            matches = re.findall('(@[\w0-9:\-\_\,\.]+\{(.(?!\n\}))+..\})', content, re.DOTALL)  # [^\}]*(?=\n\})
 
             # iterate over found entries
             for entry in matches:
