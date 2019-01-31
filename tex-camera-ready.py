@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import sys
+from PIL import Image
 
 
 def refactor_dependencies(old_file, new_file, root_dir):
@@ -195,15 +196,48 @@ for line in lines:
         print('\n + {:15}: {}'.format(context, filename))
         print('   {:15}> {}'.format('               ', new_filename))
 
-        # Find resources in a referenced file
+
         if filename.endswith('.tex'):
+            # If the referenced file is a TikZ or PGF figure, refactor its dependencies
             missing_deps[filename] = refactor_dependencies(filename, '{}/{}'.format(args.output, new_filename), args.output)
         else:
-            shutil.copyfile(filename, '{}/{}'.format(args.output, new_filename))
+            # Look for cropping in parameters
+            cropopt = re.search('trim=([0-9]+) ([0-9]+) ([0-9]+) ([0-9]+)', params) if args.crop else None
 
-        if not params: params = ''
-        if len(params) > 0: params = params.replace('\\', '\\\\')
-        if command == 'includestandalone': new_filename = new_filename.replace('.tex', '')
+            # If the file is a graphics file, and cropping was requested, trim the bitmap and save...
+            if args.crop and command == "includegraphics" and cropopt:
+
+                l, b, r, t = cropopt.groups()
+
+                # Crop the image
+                im = Image.open("%s/%s" % (input_root, filename))
+                w, h = im.size
+                dpi = im.info["dpi"] if 'dpi' in im.info else 72
+                if not isinstance(dpi, tuple):
+                    dpi = (dpi, dpi)
+                im.crop((int(l) * dpi[0] / 72, int(t) * dpi[1] / 72, w - int(r) * dpi[0] / 72,
+                         h - int(b) * dpi[1] / 72)).save('{}/{}'.format(args.output, new_filename))
+
+                # Remove trimming commands from the parameters
+                params = re.sub('trim=([0-9]+) ([0-9]+) ([0-9]+) ([0-9]+)', '', params)
+                params = re.sub('clip', '', params)
+                params = re.sub(',,', ',', params)
+                params = params.replace("[,", "[")
+                params = params.replace(",]", "]")
+                print('   {:15}T {}'.format('               ', 'clipped bitmap'))
+
+            else:
+                shutil.copyfile(filename, '{}/{}'.format(args.output, new_filename))
+
+        if not params:
+            params = ''
+
+        if len(params) > 0:
+            params = params.replace('\\', '\\\\')
+
+        if command == 'includestandalone':
+            new_filename = new_filename.replace('.tex', '')
+
         line = re.sub("(includegraphics|input|include|includestandalone)(\[[^\]]*\]){0,1}\{([^\}]*)\}", "%s%s{%s}" % (command, params, new_filename), line)
 
     if args.bib:
