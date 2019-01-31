@@ -105,6 +105,19 @@ In the main document, this becomes:
 
 The tool will refactor `\FigPath` and `\DataPath` commands.
 
+## Cropping
+
+LaTeX allows you to trim included graphics files, but the bitmaps embedded in the PDF are actually full size. In order to reduce file size, this tool can crop the files for you. The graphics will be opened, trimmed, and saved in a new location. The parser looks for a trimming definition `,trim=A S D F,clip`, so the following line:
+
+```
+\subfloat[Thumbnails]{\includegraphics[width=\columnwidth,trim=10 10 10 10,clip]{figures/graphics.jpg}}
+```
+
+will be replaced with 
+```
+\subfloat[Thumbnails]{\includegraphics[width=\columnwidth]{includes/figure_01.jpg}}
+```
+
 ## BibTeX Entries
 
 The current implementation requires BibTeX entries to have the final closing bracket in a separate line. Attributes should also be defined in lower case. There might be more limitations. Entries copied from Google Scholar are typically handled correctly.
