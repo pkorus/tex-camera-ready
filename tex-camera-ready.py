@@ -5,7 +5,37 @@ import os
 import re
 import shutil
 import sys
+import subprocess
 from PIL import Image
+
+
+class NonStandaloneError(RuntimeError):
+    pass
+
+
+def build_dependency(old_file, new_file):
+    previous_dir = os.path.abspath(os.path.curdir)
+    os.chdir(os.path.split(old_file)[0])
+
+    # Open the file and check if the first line starts with standalone
+    with open(old_file) as file:
+        line = file.readline()
+        while line.startswith('%'):
+            line = file.readline()
+        if 'standalone' not in line:
+            raise NonStandaloneError()
+
+    # print('Compiling a standalone dependency {} -> {}'.format(old_file, new_file))
+    # print('> latexmk -pdf {}'.format(old_file))
+    (exitcode, output) = subprocess.getstatusoutput('latexmk -pdf {} < /dev/null'.format(old_file))
+
+    if exitcode != 0:
+        print('Error: could not build figure (see latexmk log below)!')
+        # print(output)
+
+    # print('Copying {} -> {}'.format(old_file.replace('.tex', '.pdf'), new_file.replace('.tex', '.pdf')))
+    shutil.copyfile(old_file.replace('.tex', '.pdf'), new_file.replace('.tex', '.pdf'))
+    os.chdir(previous_dir)
 
 
 def refactor_dependencies(old_file, new_file, root_dir):
@@ -94,6 +124,7 @@ parser.add_argument('-c', '--crop', help='Crop bitmaps based on LaTeX trim param
 parser.add_argument('-v', '--verbose', help='Print analysis summary to stdout', action='store_true')
 parser.add_argument('-f', '--force', help='Force output to an existing directory', action='store_true')
 parser.add_argument('-b', '--bib', help='Cleanup Bibtex entries (leave only cited)', action='store_true')
+parser.add_argument('-t', '--tikz', help='Compile standalone TikZ figures and include resulting PDFs', action='store_true')
 args = parser.parse_args()
 
 supported_formats = ['.tex']
@@ -107,7 +138,7 @@ if not args.output:
     args.output = './final_new'
 
 if os.path.isdir(args.output) and not args.force:
-    print('Error: directory {} exists!'.format(args.output))
+    print('Error: directory {} exists!'.format(os.path.abspath(args.output)))
     sys.exit(2)
 
 current_environment = collections.deque()
@@ -118,13 +149,20 @@ counters = {'figure': 0, 'table': 0, 'algorithm': 0}
 input_root = os.path.dirname(args.filename)
 input_root = input_root if len(input_root) > 0 else '.'
 
+output_root = os.path.abspath(args.output)
+
 # Read lines from the input file
 with open(args.filename) as f:
     lines = f.readlines()
 
 missing_deps = {}
 
-print('Loaded {} lines from {}'.format(len(lines), args.filename))
+print('\nInput file  : {}'.format(os.path.split(args.filename)[-1]))
+print('Input dir   : {}'.format(input_root))
+print('Output dir  : {}'.format(output_root))
+print('Working dir : {}'.format(os.path.abspath(os.curdir)))
+
+print('\nLoaded {} lines from {}'.format(len(lines), args.filename))
 print('Writing to {}'.format(args.output))
 
 for dirname in [args.output, '{}/bib'.format(args.output), '{}/resources'.format(args.output), '{}/includes'.format(args.output)]:
@@ -176,10 +214,10 @@ for line in lines:
 
         if command in ['input', 'include', 'includestandalone']:
             # If filename not explicit, fallback to *.tex
-            if not os.path.isfile(filename) and not filename.endswith('.tex'):
+            if not os.path.isfile(os.path.join(input_root, filename)) and not filename.endswith('.tex'):
                 filename = '{}.tex'.format(filename)
-            if not os.path.isfile(filename):
-                print('Error {} not found in the filesystem'.format(filename))
+            if not os.path.isfile(os.path.join(input_root, filename)):
+                print('Error: {} not found in the filesystem'.format(filename))
                 sys.exit(5)
 
         # The sub-extension handles multiple includes in a single figure (
@@ -194,12 +232,20 @@ for line in lines:
         current_subfig += 1
 
         print('\n + {:15}: {}'.format(context, filename))
-        print('   {:15}> {}'.format('               ', new_filename))
-
 
         if filename.endswith('.tex'):
-            # If the referenced file is a TikZ or PGF figure, refactor its dependencies
-            missing_deps[filename] = refactor_dependencies(filename, '{}/{}'.format(args.output, new_filename), args.output)
+            # If the resource is a TiKz/PFG figure
+            if args.tikz:
+                # If requested, compile the standalone figure and incude the resulting PDF
+                try:
+                    build_dependency(os.path.join(input_root, filename), os.path.join(output_root, new_filename))
+                    new_filename = new_filename.replace('.tex', '.pdf')
+                    command = 'includegraphics'
+                except NonStandaloneError:
+                    missing_deps[filename] = refactor_dependencies(os.path.join(input_root, filename), os.path.join(output_root, new_filename), output_root)
+            else:
+                # Otherwise, refactor its dependencies
+                missing_deps[filename] = refactor_dependencies(os.path.join(input_root, filename), os.path.join(output_root, new_filename), output_root)
         else:
             # Look for cropping in parameters
             cropopt = re.search('trim=([0-9]+) ([0-9]+) ([0-9]+) ([0-9]+)', params) if args.crop else None
@@ -227,7 +273,9 @@ for line in lines:
                 print('   {:15}T {}'.format('               ', 'clipped bitmap'))
 
             else:
-                shutil.copyfile(filename, '{}/{}'.format(args.output, new_filename))
+                shutil.copyfile(os.path.join(input_root, filename), '{}/{}'.format(args.output, new_filename))
+
+        print('   {:15}> {}'.format('               ', new_filename))
 
         if not params:
             params = ''
@@ -312,6 +360,6 @@ if args.bib:
     if len([v for v in found_citations if v not in matched_citations.keys()]) > 0:
         print('Missing ones: {}'.format([v for v in found_citations if v not in matched_citations.keys()]))
 
-    with open("%s/bib/references.bib" % (args.output), 'w') as of:
+    with open("%s/bib/references.bib" % (output_root), 'w') as of:
         for name in sorted(matched_citations.keys()):
             of.write("%s\n\n" % matched_citations[name])
