@@ -8,6 +8,7 @@ TLDR:
 - Distills a single file with matching BibTeX entries
 - Renames figures and copies directly included resources from TiKz figures
 - Can crop fragments of larger images to reduce file size
+- Can compile standalone figures and include them as PDFs instead
 - Not thoroughly tested, and possibly buggy but saves me time
 
 ## Usage
@@ -29,6 +30,8 @@ optional arguments:
   -v, --verbose         Print analysis summary to stdout
   -f, --force           Force output to an existing directory
   -b, --bib             Cleanup Bibtex entries (leave only cited)
+  -t, --tikz            Compile standalone TikZ figures and include resulting
+                        PDFs  
 ```
 
 ## Example
@@ -123,6 +126,6 @@ will be replaced with
 The current implementation requires BibTeX entries to have the final closing bracket in a separate line. Attributes should also be defined in lower case. There might be more limitations. Entries copied from Google Scholar are typically handled correctly.
 
 
-## Ideas for Later
+## Building Standalone Figures on the Fly
 
-- Auto-compile TiKz figures and replace `includestandalone` with `includegraphics`
+The tool can compile standalone figures and include them as graphics files (see `-t` option). In the process, `latexmk -pdf` will be called, and the resulting PDFs will be used in the include commands (`includestandalone` becomes `includegraphics`). For this to work, make sure that `latexmk` can build your figures with the figure directory as the current dir. 
